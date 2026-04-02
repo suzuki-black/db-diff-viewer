@@ -1,0 +1,36 @@
+version: '3.8'
+
+# 開発用 docker-compose オーバーライド
+# 使い方: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    ports:
+      - '${FRONTEND_PORT:-5173}:5173'
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - VITE_API_BASE_URL=http://localhost:${BACKEND_PORT:-8000}
+    command: npm run dev -- --host 0.0.0.0
+    depends_on:
+      - backend
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    ports:
+      - '${BACKEND_PORT:-8000}:8000'
+    volumes:
+      - ./backend:/app
+      - sqlite_data:/app/data
+      - ${SSH_KEYS_PATH:-./ssh_keys}:/ssh_keys:ro
+    environment:
+      - SECRET_KEY=${SECRET_KEY:-dev_secret_key_do_not_use_in_prod}
+      - DATABASE_URL=sqlite:////app/data/dbdiff.db
+      - DEBUG=true
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload

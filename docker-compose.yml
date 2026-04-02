@@ -1,0 +1,251 @@
+version: '3.8'
+
+# ============================================================
+# サンプル DB コンテナ（ローカル開発・動作確認専用）
+# 起動直後から GUI でサンプルデータの差分を確認できます。
+# 接続情報はサンプル用固定値です。本番 DB とは完全に切り離されています。
+# ============================================================
+
+services:
+
+  # ============================================================
+  # サンプル MySQL DB（左）
+  # ============================================================
+  db_left:
+    image: mysql:8.0
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --skip-character-set-client-handshake
+      - --innodb_buffer_pool_size=512M
+      - --innodb_redo_log_capacity=2G
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: testdb_left
+      MYSQL_USER: testuser
+      MYSQL_PASSWORD: testpass
+    ports:
+      - '3307:3306'
+    volumes:
+      - db_left_data:/var/lib/mysql
+      - ./mysql/db_left/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - dbdiff_net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "testuser", "-ptestpass"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # ============================================================
+  # サンプル MySQL DB（右）: 左 DB との差分あり
+  # ============================================================
+  db_right:
+    image: mysql:8.0
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --skip-character-set-client-handshake
+      - --innodb_buffer_pool_size=512M
+      - --innodb_redo_log_capacity=2G
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: testdb_right
+      MYSQL_USER: testuser
+      MYSQL_PASSWORD: testpass
+    ports:
+      - '3308:3306'
+    volumes:
+      - db_right_data:/var/lib/mysql
+      - ./mysql/db_right/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - dbdiff_net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "testuser", "-ptestpass"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # ============================================================
+  # サンプル MySQL DB（SSH トンネル経由アクセス確認用）
+  # ホストには直接ポートを公開しない → SSH 経由でのみ接続可能
+  # ============================================================
+  db_ssh_target:
+    image: mysql:8.0
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --skip-character-set-client-handshake
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: testdb_ssh
+      MYSQL_USER: testuser
+      MYSQL_PASSWORD: testpass
+    # ports は意図的に公開しない（SSH トンネル経由のみアクセス可）
+    volumes:
+      - db_ssh_target_data:/var/lib/mysql
+      - ./mysql/db_ssh_target/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - dbdiff_net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "testuser", "-ptestpass"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # ============================================================
+  # サンプル PostgreSQL DB（左）
+  # ============================================================
+  pg_left:
+    image: postgres:16
+    environment:
+      POSTGRES_DB:       testdb_pg_left
+      POSTGRES_USER:     testuser
+      POSTGRES_PASSWORD: testpass
+    ports:
+      - '54332:5432'
+    volumes:
+      - pg_left_data:/var/lib/postgresql/data
+      - ./postgres/pg_left/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - dbdiff_net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U testuser -d testdb_pg_left"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # ============================================================
+  # サンプル PostgreSQL DB（右）: 左 DB との差分あり
+  # ============================================================
+  pg_right:
+    image: postgres:16
+    environment:
+      POSTGRES_DB:       testdb_pg_right
+      POSTGRES_USER:     testuser
+      POSTGRES_PASSWORD: testpass
+    ports:
+      - '54333:5432'
+    volumes:
+      - pg_right_data:/var/lib/postgresql/data
+      - ./postgres/pg_right/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - dbdiff_net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U testuser -d testdb_pg_right"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # ============================================================
+  # サンプル PostgreSQL DB（SSH トンネル経由アクセス確認用）
+  # ホストには直接ポートを公開しない → SSH 経由でのみ接続可能
+  # ============================================================
+  pg_ssh_target:
+    image: postgres:16
+    environment:
+      POSTGRES_DB:       testdb_pg_ssh
+      POSTGRES_USER:     testuser
+      POSTGRES_PASSWORD: testpass
+    # ports は意図的に公開しない（SSH トンネル経由のみアクセス可）
+    volumes:
+      - pg_ssh_target_data:/var/lib/postgresql/data
+      - ./postgres/pg_ssh_target/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - dbdiff_net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U testuser -d testdb_pg_ssh"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # ============================================================
+  # SSH サーバーコンテナ（SSH トンネル動作確認用）
+  # backend コンテナがここを経由して db_ssh_target / pg_ssh_target に接続する
+  # ============================================================
+  ssh_server:
+    build:
+      context: ./ssh_server
+      dockerfile: Dockerfile
+    networks:
+      - dbdiff_net
+    restart: unless-stopped
+    depends_on:
+      db_ssh_target:
+        condition: service_healthy
+      pg_ssh_target:
+        condition: service_healthy
+
+  frontend:
+    image: db-diff-viewer-frontend:latest
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - '${FRONTEND_PORT:-3000}:80'
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - dbdiff_net
+    restart: unless-stopped
+
+  backend:
+    image: db-diff-viewer-backend:latest
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - '${BACKEND_PORT:-8000}:8000'
+    volumes:
+      - sqlite_data:/app/data
+      - ${SSH_KEYS_PATH:-./ssh_keys}:/ssh_keys:ro
+    environment:
+      - SECRET_KEY=${SECRET_KEY:-change_me_in_production_use_strong_random_key}
+      - DATABASE_URL=sqlite:////app/data/dbdiff.db
+    networks:
+      - dbdiff_net
+    depends_on:
+      db_left:
+        condition: service_healthy
+      db_right:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  sqlite_data:
+    name: dbdiff_sqlite_data
+  db_left_data:
+    name: dbdiff_db_left_data
+  db_right_data:
+    name: dbdiff_db_right_data
+  db_ssh_target_data:
+    name: dbdiff_db_ssh_target_data
+  pg_left_data:
+    name: dbdiff_pg_left_data
+  pg_right_data:
+    name: dbdiff_pg_right_data
+  pg_ssh_target_data:
+    name: dbdiff_pg_ssh_target_data
+
+networks:
+  dbdiff_net:
+    driver: bridge
