@@ -86,7 +86,7 @@ DB Diff Viewer は、**2 つのデータベースの差分を直感的に確認�
 
 ```bash
 # 1. リポジトリをクローン
-git clone https://github.com/<your-username>/db-diff-viewer.git
+git clone git@github.com:suzuki-black/db-diff-viewer.git
 cd db-diff-viewer
 
 # 2. 環境変数ファイルを作成
@@ -278,7 +278,26 @@ db-diff-viewer/
 - [ ] **接続設定のインポート／エクスポート**（チームで設定を共有しやすく）
 - [ ] **HTTPS 対応**（TLS 終端の組み込みサポート）
 - [ ] **ユーザー認証**（Basic 認証 / OIDC 連携）
-- [ ] **フロントエンドのユニットテスト追加**
+---
+
+## テスト
+
+フロントエンドのユニットテストは [Vitest](https://vitest.dev/) + [Testing Library](https://testing-library.com/) で実装されています。
+
+開発モード（`docker-compose.dev.yml`）のコンテナには Node.js が含まれているため、コンテナ内でテストを実行できます。
+
+```bash
+# 開発モードでコンテナを起動（起動済みの場合は不要）
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+
+# テストを 1 回だけ実行
+docker compose exec frontend npm run test:run
+
+# カバレッジレポートを生成（frontend/coverage/ に HTML が出力される）
+docker compose exec frontend npm run test:coverage
+```
+
+> **注意**: 本番用コンテナ（`docker compose up` のみで起動した場合）は nginx イメージのため Node.js がなく、テストは実行できません。
 
 ---
 
