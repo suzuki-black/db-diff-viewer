@@ -99,12 +99,40 @@ vi .env
 # 4. 起動（初回はイメージのビルドが走るため数分かかります）
 docker compose up -d --build
 
-# 5. ブラウザでアクセス
-open http://localhost:3000
+# 5. ブラウザでアクセス（HTTPS）
+open https://localhost:3000
 ```
 
 > **ポート番号の変更**
 > `FRONTEND_PORT`（デフォルト 3000）と `BACKEND_PORT`（デフォルト 8000）は `.env` で変更できます。
+
+### 初回アクセス時のブラウザ警告について
+
+証明書を用意していない場合、コンテナ起動時に **自己署名証明書が自動生成**されます。
+初回アクセス時にブラウザの警告画面が表示されますが、以下の手順で進めてください。
+
+| ブラウザ | 操作 |
+|---------|------|
+| **Edge / Chrome** | 警告画面で「詳細設定」→「localhost にアクセスする（安全でない）」をクリック |
+| **Firefox** | 「詳細情報」→「危険性を承知で続行」をクリック |
+
+#### 正式な証明書を使う（本番環境・社内 CA 等）
+
+```bash
+# certs/ に証明書を配置（ファイル名は固定）
+cp /path/to/your/server.crt certs/server.crt
+cp /path/to/your/server.key certs/server.key
+
+# コンテナを再起動して反映
+docker compose restart frontend
+```
+
+| ファイル | 内容 |
+|---------|------|
+| `certs/server.crt` | サーバー証明書（中間 CA 証明書を含む場合は結合した PEM 形式） |
+| `certs/server.key` | 秘密鍵（PEM 形式） |
+
+> `certs/*.crt` / `certs/*.key` は `.gitignore` で除外済みです。証明書をリポジトリにコミットしないでください。
 
 ### 開発モード（ホットリロード有効）
 
@@ -187,7 +215,7 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
 | リスク | 対処法 |
 |--------|--------|
 | **SECRET_KEY の流出** | `.env` を Git 管理から除外する（`.gitignore` 設定済み）。強力なランダム値を使用すること。 |
-| **通信の平文転送** | HTTPS 化（nginx リバースプロキシ + TLS）を検討してください。デフォルト構成は HTTP のみです。 |
+| **通信の平文転送** | デフォルトで HTTPS (port 3443) に対応しています。本番環境では正式な証明書を `certs/` に配置してください。 |
 | **レコードデータの画面表示** | 個人情報・機密データが差分として画面に表示されます。アクセス制限（IP 制限・認証）を設けてください。 |
 | **SSH 秘密鍵の管理** | `ssh_keys/` ディレクトリは `.gitignore` 対象です。鍵ファイルは Git にコミットしないでください。 |
 | **認証機能なし** | このツールにはユーザー認証機能がありません。社内ネットワーク限定 or VPN 経由での利用を推奨します。 |
@@ -246,6 +274,7 @@ db-diff-viewer/
 ├── docker-compose.yml         # 本番用 Compose 設定
 ├── docker-compose.dev.yml     # 開発用オーバーライド（ホットリロード）
 ├── .env.example               # 環境変数テンプレート
+├── certs/                     # TLS 証明書格納ディレクトリ（.gitignore 対象）
 ├── ssh_keys/                  # SSH 秘密鍵格納ディレクトリ（.gitignore 対象）
 ├── mysql/                     # MySQL テスト用初期化 SQL
 ├── postgres/                  # PostgreSQL テスト用初期化 SQL
@@ -276,7 +305,6 @@ db-diff-viewer/
 - [ ] **カラム・テーブルフィルター**（比較対象から特定テーブル・カラムを除外する設定）
 - [ ] **レコード差分のインライン表示**（変更前→変更後を 1 行内に並べて表示）
 - [ ] **接続設定のインポート／エクスポート**（チームで設定を共有しやすく）
-- [ ] **HTTPS 対応**（TLS 終端の組み込みサポート）
 - [ ] **ユーザー認証**（Basic 認証 / OIDC 連携）
 ---
 
