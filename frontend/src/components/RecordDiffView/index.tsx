@@ -12,7 +12,7 @@
  */
 import { useEffect, useRef, useCallback, useState, useMemo } from 'react'
 import {
-  Card, Button, Space, Tag, Empty, Alert, Checkbox, Tabs, Typography, Spin, Progress,
+  Card, Button, Space, Tag, Empty, Alert, Checkbox, Tabs, Typography, Spin, Progress, Segmented,
 } from 'antd'
 import { ArrowLeftOutlined } from '@ant-design/icons'
 import { useVirtualizer } from '@tanstack/react-virtual'
@@ -37,6 +37,7 @@ const DB_BANNER_H    = 30
 const STATUS_COL_W   = 76
 const PK_COL_W       = 100
 const DATA_COL_W     = 150
+const INLINE_COL_W   = 220   // インラインモード: 変更前→変更後を 1 セルに収めるため広め
 const PAGE_SIZE      = 200   // ページネーション1ページあたりのレコード数
 
 // ── 仮想スクロール表示上限 ───────────────────────────────────
@@ -162,6 +163,77 @@ function SkeletonCell({ width }: { width: number }) {
   )
 }
 
+// ── インライン差分セル（変更前 → 変更後 を 1 セルに表示）──
+function InlineDataCell({ leftVal, rightVal, isDiff, status, width }: {
+  leftVal: unknown; rightVal: unknown; isDiff: boolean; status: DiffStatus; width: number
+}) {
+  const toStr = (v: unknown) => (v == null ? null : String(v))
+  const leftStr  = toStr(leftVal)
+  const rightStr = toStr(rightVal)
+
+  // modified かつ差分カラム → 変更前（打ち消し線）→ 変更後 を並べて表示
+  if (isDiff && status === 'modified') {
+    const nullSpan = (color: string) => (
+      <span style={{ fontStyle: 'italic', color }}>NULL</span>
+    )
+    return (
+      <div
+        style={{
+          width, minWidth: width, flexShrink: 0,
+          height: CELL_HEIGHT, display: 'flex', alignItems: 'center',
+          padding: '0 6px', gap: 3,
+          borderRight: '1px solid #f0f0f0',
+          background: '#ffe58f',
+          overflow: 'hidden',
+        }}
+      >
+        <span
+          style={{
+            color: '#cf1322', textDecoration: 'line-through',
+            fontSize: 11, flexShrink: 1, minWidth: 0,
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}
+          title={leftStr ?? 'NULL'}
+        >
+          {leftStr ?? nullSpan('#d9b38c')}
+        </span>
+        <span style={{ color: '#888', fontSize: 11, flexShrink: 0 }}>→</span>
+        <span
+          style={{
+            color: '#237804', fontWeight: 700,
+            fontSize: 11, flexShrink: 1, minWidth: 0,
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}
+          title={rightStr ?? 'NULL'}
+        >
+          {rightStr ?? nullSpan('#5f9e5f')}
+        </span>
+      </div>
+    )
+  }
+
+  // added → 右DB 値を表示 / deleted → 左DB 値を表示 / equal / 非差分 → そのまま
+  const val = status === 'deleted' ? leftStr : rightStr
+  return (
+    <div
+      style={{
+        width, minWidth: width, flexShrink: 0,
+        height: CELL_HEIGHT, display: 'flex', alignItems: 'center',
+        padding: '0 8px',
+        borderRight: '1px solid #f0f0f0',
+        fontSize: 12,
+        background: 'transparent',
+        overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
+      }}
+      title={val ?? 'NULL'}
+    >
+      {val === null
+        ? <span style={{ color: '#aaa', fontSize: 11, fontStyle: 'italic' }}>NULL</span>
+        : val}
+    </div>
+  )
+}
+
 // ── "このDBには存在しません" プレースホルダ ──────────────────
 function NotExistCell() {
   return (
@@ -251,6 +323,9 @@ export default function RecordDiffView() {
   const [loadingPageCount, setLoadingPageCount] = useState(0)
   const [loadedPagesCount, setLoadedPagesCount] = useState(0)
 
+  // 表示モード: split=左右分割ペイン / inline=インライン（変更前→変更後 を 1 行で表示）
+  const [viewMode, setViewMode]               = useState<'split' | 'inline'>('split')
+
   // スキーマ差分関連
   const [activeTab, setActiveTab]             = useState<string>('records')
   const [schemaDiffResult, setSchemaDiffResult] = useState<SchemaDiffResult | null>(null)
@@ -330,8 +405,9 @@ export default function RecordDiffView() {
   }, [resultMeta, filter, virtualizerCount])
 
   // 左・右ペインの合計幅
-  const leftTotalW  = STATUS_COL_W + PK_COL_W + columns.length * DATA_COL_W
-  const rightTotalW = PK_COL_W + columns.length * DATA_COL_W
+  const leftTotalW   = STATUS_COL_W + PK_COL_W + columns.length * DATA_COL_W
+  const rightTotalW  = PK_COL_W + columns.length * DATA_COL_W
+  const inlineTotalW = STATUS_COL_W + PK_COL_W + columns.length * INLINE_COL_W
 
   // ── デバッグ用: focusedRowIndex の最新値をリアルタイムに保持する ref ──
   // loadPage 内の debugLog でスナップショットとして使う。
@@ -636,6 +712,12 @@ export default function RecordDiffView() {
     requestAnimationFrame(() => { isSyncing.current = false })
   }, [])
 
+  // ── インラインモード用スクロール（ヘッダのみ同期） ──────
+  const onInlineScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget
+    if (leftHdrRef.current) leftHdrRef.current.scrollLeft = el.scrollLeft
+  }, [])
+
   if (!selectedTableName) return null
 
   const summary   = resultMeta?.summary
@@ -690,7 +772,20 @@ export default function RecordDiffView() {
             )}
           </Space>
         }
-        extra={<FilterCheckboxes filter={filter} onChange={setFilter} />}
+        extra={
+          <Space size="middle" wrap>
+            <Segmented
+              size="small"
+              value={viewMode}
+              onChange={val => setViewMode(val as 'split' | 'inline')}
+              options={[
+                { label: '左右分割', value: 'split' },
+                { label: 'インライン', value: 'inline' },
+              ]}
+            />
+            <FilterCheckboxes filter={filter} onChange={setFilter} />
+          </Space>
+        }
         styles={{ body: { padding: '8px 12px' } }}
       >
         {fetchError && (
@@ -792,25 +887,37 @@ export default function RecordDiffView() {
                         ■ {STATUS_CFG[status].label}
                       </span>
                     ))}
-                    <span
-                      style={{
-                        display: 'inline-block',
-                        background: '#ffe58f',
-                        border: '1px solid #ffc53d',
-                        borderRadius: 2,
-                        padding: '0 6px',
-                        fontSize: 11,
-                        fontWeight: 600,
-                      }}
-                    >
-                      変更セル
-                    </span>
-                    <span style={{ color: '#bbb', fontStyle: 'italic', fontSize: 11 }}>
-                      ▨ レコードなし
-                    </span>
+                    {viewMode === 'split' ? (
+                      <>
+                        <span
+                          style={{
+                            display: 'inline-block',
+                            background: '#ffe58f',
+                            border: '1px solid #ffc53d',
+                            borderRadius: 2,
+                            padding: '0 6px',
+                            fontSize: 11,
+                            fontWeight: 600,
+                          }}
+                        >
+                          変更セル
+                        </span>
+                        <span style={{ color: '#bbb', fontStyle: 'italic', fontSize: 11 }}>
+                          ▨ レコードなし
+                        </span>
+                      </>
+                    ) : (
+                      <span style={{ fontSize: 11, color: '#595959' }}>
+                        変更セル:&nbsp;
+                        <span style={{ color: '#cf1322', textDecoration: 'line-through' }}>変更前</span>
+                        &nbsp;→&nbsp;
+                        <span style={{ color: '#237804', fontWeight: 700 }}>変更後</span>
+                      </span>
+                    )}
                   </Space>
 
-                  {/* 2 ペイン */}
+                  {/* 2 ペイン / インライン（viewMode で切り替え） */}
+                  {viewMode === 'split' ? (
                   <div
                     style={{
                       display: 'flex',
@@ -1014,6 +1121,133 @@ export default function RecordDiffView() {
                       />
                     </div>
                   </div>
+                  ) : (
+                  /* ═══ インラインモード ═══ */
+                  <div
+                    style={{
+                      display: 'flex',
+                      border: '1px solid #d9d9d9',
+                      borderRadius: 4,
+                      overflow: 'hidden',
+                      background: '#fff',
+                    }}
+                  >
+                    {/* インラインペイン */}
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
+                      {/* DB ラベルバー */}
+                      <div style={{ height: DB_BANNER_H, background: '#722ed1', color: '#fff', display: 'flex', alignItems: 'center', padding: '0 12px', fontSize: 12, fontWeight: 700, flexShrink: 0, gap: 8 }}>
+                        <span>{leftLabel}</span>
+                        <span style={{ opacity: 0.6 }}>→</span>
+                        <span>{rightLabel}</span>
+                      </div>
+
+                      {/* カラムヘッダ */}
+                      <div ref={leftHdrRef} style={{ height: HEADER_HEIGHT, overflow: 'hidden', flexShrink: 0, borderBottom: '2px solid #d9d9d9', display: 'flex', background: '#f0f0f0' }}>
+                        <div style={{ display: 'flex', minWidth: inlineTotalW }}>
+                          <HeaderCell label="状態" width={STATUS_COL_W} />
+                          <HeaderCell label="🔑 主キー" width={PK_COL_W} isPK />
+                          {columns.map(col => <HeaderCell key={col} label={col} width={INLINE_COL_W} />)}
+                        </div>
+                      </div>
+
+                      {/* データエリア（仮想スクロール） */}
+                      <div
+                        ref={leftDataRef}
+                        onScroll={onInlineScroll}
+                        style={{ overflowX: 'auto', overflowY: 'scroll', height: paneH, flexShrink: 0, position: 'relative' }}
+                      >
+                        <div style={{ height: virtualizer.getTotalSize(), width: inlineTotalW, position: 'relative' }}>
+                          {virtualizer.getVirtualItems().map(vItem => {
+                            const record    = getRecord(vItem.index)
+                            const isFocused = focusedRowIndex === vItem.index
+                            const rowBg     = record ? STATUS_CFG[record.status].rowBg : 'transparent'
+
+                            return (
+                              <div
+                                key={vItem.key}
+                                style={{
+                                  position: 'absolute', top: vItem.start, left: 0,
+                                  width: inlineTotalW, height: CELL_HEIGHT,
+                                  display: 'flex', alignItems: 'stretch',
+                                  background: isFocused ? 'rgba(22,119,255,0.12)' : rowBg,
+                                  borderBottom: '1px solid #f0f0f0',
+                                  cursor: 'pointer',
+                                }}
+                                onMouseEnter={() => setFocusedRowIndex(vItem.index)}
+                                onMouseLeave={() => setFocusedRowIndex(null)}
+                              >
+                                {/* ステータスバッジ列 */}
+                                <div
+                                  style={{
+                                    width: STATUS_COL_W, minWidth: STATUS_COL_W,
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    borderRight: '1px solid #e8e8e8', flexShrink: 0,
+                                    position: 'sticky', left: 0, zIndex: 3,
+                                    background: isFocused ? 'rgba(22,119,255,0.12)' : (rowBg || '#fff'),
+                                  }}
+                                >
+                                  {record ? <StatusBadge status={record.status} /> : null}
+                                </div>
+
+                                {/* 主キー列 */}
+                                <div
+                                  style={{
+                                    width: PK_COL_W, minWidth: PK_COL_W,
+                                    display: 'flex', alignItems: 'center',
+                                    padding: '0 8px', borderRight: '2px solid #aaa',
+                                    fontWeight: 700, fontSize: 12, flexShrink: 0,
+                                    position: 'sticky', left: STATUS_COL_W, zIndex: 3,
+                                    background: isFocused ? 'rgba(22,119,255,0.12)' : (rowBg || '#fafafa'),
+                                    color: '#333',
+                                  }}
+                                >
+                                  {record ? record.primaryKeyValue : <span style={SHIMMER_STYLE} />}
+                                </div>
+
+                                {/* データ列（インライン差分） */}
+                                {!record
+                                  ? columns.map(col => <SkeletonCell key={col} width={INLINE_COL_W} />)
+                                  : columns.map(col => (
+                                      <InlineDataCell
+                                        key={col}
+                                        leftVal={record.leftValues?.[col]}
+                                        rightVal={record.rightValues?.[col]}
+                                        isDiff={record.diffColumns.includes(col)}
+                                        status={record.status}
+                                        width={INLINE_COL_W}
+                                      />
+                                    ))
+                                }
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* ミニマップ（インラインモードでも維持） */}
+                    <div style={{ display: 'flex', flexDirection: 'column', flexShrink: 0, borderLeft: '1px solid #e8e8e8' }}>
+                      <div
+                        style={{
+                          height: DB_BANNER_H + HEADER_HEIGHT,
+                          background: '#fafafa',
+                          borderBottom: '2px solid #d9d9d9',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontSize: 10, color: '#aaa', writingMode: 'vertical-rl',
+                        }}
+                      >
+                        MAP
+                      </div>
+                      <DiffMinimap
+                        segments={minimapSegments}
+                        totalCount={virtualizerCount}
+                        focusedIndex={focusedRowIndex}
+                        onFocus={idx => setFocusedRowIndex(Math.min(idx, virtualizerCount - 1))}
+                        height={paneH}
+                      />
+                    </div>
+                  </div>
+                  )}
 
                   {/* 件数フッタ */}
                   {totalFilteredCount === 0 ? (
