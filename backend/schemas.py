@@ -58,6 +58,42 @@ class ConnectionTestResult(BaseModel):
     latency_ms: Optional[int] = None
 
 
+class ConnectionExportItem(BaseModel):
+    """エクスポート用接続設定（パスワードを除く）"""
+    name: str
+    db_type: Literal["mysql", "postgresql"]
+    host: str
+    port: int
+    username: str
+    schema_name: str
+    use_ssh: bool
+    ssh_host: Optional[str] = None
+    ssh_port: Optional[int] = None
+    ssh_username: Optional[str] = None
+    ssh_auth_type: Optional[Literal["password", "key"]] = None
+    ssh_key_path: Optional[str] = None
+    local_bind_port: Optional[int] = None
+
+
+class ConnectionExport(BaseModel):
+    """エクスポートファイル形式"""
+    version: str = "1.0"
+    exported_at: str
+    connections: list[ConnectionExportItem]
+
+
+class ConnectionImportBody(BaseModel):
+    """インポートリクエスト"""
+    connections: list[ConnectionExportItem]
+
+
+class ConnectionImportResult(BaseModel):
+    """インポート結果"""
+    created: int
+    skipped: int
+    skipped_names: list[str] = []
+
+
 # ============================================================
 # 差分比較スキーマ
 # ============================================================

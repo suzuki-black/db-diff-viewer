@@ -1,5 +1,5 @@
 import apiClient from './client'
-import type { Connection, ConnectionFormValues, ConnectionTestResult, DbType } from '@/types'
+import type { Connection, ConnectionExport, ConnectionExportItem, ConnectionFormValues, ConnectionImportResult, ConnectionTestResult, DbType } from '@/types'
 
 // バックエンドのスネークケース ↔ フロントエンドのキャメルケース変換
 function toSnakeCase(data: ConnectionFormValues) {
@@ -78,5 +78,15 @@ export const connectionsApi = {
   /** 接続テスト */
   test: async (id: number): Promise<ConnectionTestResult> => {
     return apiClient.post<ConnectionTestResult>(`/connections/${id}/test`)
+  },
+
+  /** 接続設定をエクスポート（パスワードを除く JSON を返す） */
+  export: async (): Promise<ConnectionExport> => {
+    return apiClient.get<ConnectionExport>('/connections/export')
+  },
+
+  /** 接続設定をインポート */
+  import: async (connections: ConnectionExportItem[]): Promise<ConnectionImportResult> => {
+    return apiClient.post<ConnectionImportResult>('/connections/import', { connections })
   },
 }

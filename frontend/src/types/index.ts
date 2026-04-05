@@ -49,6 +49,41 @@ export interface ConnectionFormValues {
 }
 
 // ============================================================
+// 接続設定 インポート/エクスポート
+// ============================================================
+
+/** エクスポートファイル内の 1 接続（パスワードなし・snake_case はバックエンドに合わせる） */
+export interface ConnectionExportItem {
+  name: string
+  db_type: DbType
+  host: string
+  port: number
+  username: string
+  schema_name: string
+  use_ssh: boolean
+  ssh_host?: string
+  ssh_port?: number
+  ssh_username?: string
+  ssh_auth_type?: SshAuthType
+  ssh_key_path?: string
+  local_bind_port?: number
+}
+
+/** エクスポートファイル全体のフォーマット */
+export interface ConnectionExport {
+  version: string
+  exported_at: string
+  connections: ConnectionExportItem[]
+}
+
+/** インポート結果 */
+export interface ConnectionImportResult {
+  created: number
+  skipped: number
+  skipped_names: string[]
+}
+
+// ============================================================
 // 差分関連
 // ============================================================
 
