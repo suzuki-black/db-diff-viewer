@@ -1,13 +1,17 @@
 """
 DB接続設定 CRUD API
 """
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from database import get_db
 from models import Connection
 from schemas import (
-    ConnectionCreate, ConnectionResponse, ConnectionTestResult, ConnectionUpdate,
+    ConnectionCreate, ConnectionExport, ConnectionExportItem,
+    ConnectionImportBody, ConnectionImportResult,
+    ConnectionResponse, ConnectionTestResult, ConnectionUpdate,
 )
 from services.db_client import test_connection
 from utils.crypto import encrypt
@@ -52,6 +56,71 @@ def create_connection(body: ConnectionCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(conn)
     return conn
+
+
+@router.get("/export", response_model=ConnectionExport)
+def export_connections(db: Session = Depends(get_db)):
+    """接続設定一覧をエクスポート（パスワードを除く）"""
+    connections = db.query(Connection).order_by(Connection.name).all()
+    items = [
+        ConnectionExportItem(
+            name=c.name,
+            db_type=c.db_type,
+            host=c.host,
+            port=c.port,
+            username=c.username,
+            schema_name=c.schema_name,
+            use_ssh=c.use_ssh,
+            ssh_host=c.ssh_host,
+            ssh_port=c.ssh_port,
+            ssh_username=c.ssh_username,
+            ssh_auth_type=c.ssh_auth_type,
+            ssh_key_path=c.ssh_key_path,
+            local_bind_port=c.local_bind_port,
+        )
+        for c in connections
+    ]
+    return ConnectionExport(
+        exported_at=datetime.now(timezone.utc).isoformat(),
+        connections=items,
+    )
+
+
+@router.post("/import", response_model=ConnectionImportResult)
+def import_connections(body: ConnectionImportBody, db: Session = Depends(get_db)):
+    """接続設定をインポート（同名は重複スキップ）"""
+    existing_names = {c.name.lower() for c in db.query(Connection).all()}
+    created = 0
+    skipped = 0
+    skipped_names: list[str] = []
+
+    for item in body.connections:
+        if item.name.lower() in existing_names:
+            skipped += 1
+            skipped_names.append(item.name)
+            continue
+        conn = Connection(
+            name=item.name,
+            db_type=item.db_type,
+            host=item.host,
+            port=item.port,
+            username=item.username,
+            password_enc=encrypt(""),
+            schema_name=item.schema_name,
+            use_ssh=item.use_ssh,
+            ssh_host=item.ssh_host,
+            ssh_port=item.ssh_port,
+            ssh_username=item.ssh_username,
+            ssh_auth_type=item.ssh_auth_type,
+            ssh_key_path=item.ssh_key_path,
+            local_bind_port=item.local_bind_port,
+        )
+        db.add(conn)
+        existing_names.add(item.name.lower())
+        created += 1
+
+    db.commit()
+    return ConnectionImportResult(created=created, skipped=skipped, skipped_names=skipped_names)
 
 
 @router.get("/{conn_id}", response_model=ConnectionResponse)

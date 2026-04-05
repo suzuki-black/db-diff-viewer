@@ -2,6 +2,7 @@ import { Card, Checkbox, Radio, InputNumber, Space, Typography, Divider, Button,
 import { ReloadOutlined } from '@ant-design/icons'
 import { useSettingsStore } from '@/store/settingsStore'
 import type { DiffAlgorithm, DiffFilter } from '@/types'
+import { APP_VERSION } from '@/version'
 
 const { Text } = Typography
 
@@ -142,7 +143,7 @@ export default function SettingsPanel() {
             <b>アプリ名:</b> DB Diff Viewer
           </Text>
           <Text type="secondary" style={{ fontSize: 12 }}>
-            <b>バージョン:</b> 1.2.0
+            <b>バージョン:</b> {APP_VERSION}
           </Text>
           <Text type="secondary" style={{ fontSize: 12 }}>
             <b>対応DB:</b> MySQL 5.7 / 8.x、PostgreSQL 14+

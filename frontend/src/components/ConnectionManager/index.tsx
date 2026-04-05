@@ -1,14 +1,14 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import {
   Card, Table, Button, Space, Popconfirm, Tag, message, Tooltip, Modal,
 } from 'antd'
 import {
   PlusOutlined, EditOutlined, DeleteOutlined, ApiOutlined, CheckCircleOutlined,
-  CloseCircleOutlined,
+  CloseCircleOutlined, ExportOutlined, ImportOutlined,
 } from '@ant-design/icons'
 import { useConnectionStore } from '@/store/connectionStore'
 import { connectionsApi } from '@/api/connections'
-import type { Connection } from '@/types'
+import type { Connection, ConnectionExport } from '@/types'
 import ConnectionForm from './ConnectionForm'
 
 export default function ConnectionManager() {
@@ -16,6 +16,9 @@ export default function ConnectionManager() {
   const [formOpen, setFormOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<Connection | null>(null)
   const [testingId, setTestingId] = useState<number | null>(null)
+  const [exporting, setExporting] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const handleCreate = () => {
     setEditTarget(null)
@@ -34,6 +37,59 @@ export default function ConnectionManager() {
       message.success('接続設定を削除しました')
     } catch {
       // エラーはaxiosインターセプターで処理済み
+    }
+  }
+
+  const handleExport = async () => {
+    setExporting(true)
+    try {
+      const data = await connectionsApi.export()
+      const json = JSON.stringify(data, null, 2)
+      const blob = new Blob([json], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+      a.href = url
+      a.download = `db-connections-${timestamp}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+      message.success(`${data.connections.length} 件の接続設定をエクスポートしました`)
+    } catch {
+      // エラーはaxiosインターセプターで処理済み
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    // input をリセット（同じファイルを再選択できるように）
+    e.target.value = ''
+
+    setImporting(true)
+    try {
+      const text = await file.text()
+      const parsed: ConnectionExport = JSON.parse(text)
+      if (!Array.isArray(parsed.connections)) {
+        message.error('ファイル形式が正しくありません')
+        return
+      }
+      const result = await connectionsApi.import(parsed.connections)
+      if (result.created > 0) {
+        await fetchConnections()
+      }
+      if (result.skipped > 0) {
+        message.warning(
+          `${result.created} 件インポート、${result.skipped} 件スキップ（重複: ${result.skipped_names.join(', ')}）`
+        )
+      } else {
+        message.success(`${result.created} 件の接続設定をインポートしました`)
+      }
+    } catch {
+      message.error('ファイルの読み込みに失敗しました。JSON 形式を確認してください。')
+    } finally {
+      setImporting(false)
     }
   }
 
@@ -139,12 +195,41 @@ export default function ConnectionManager() {
 
   return (
     <>
+      {/* hidden file input for import */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".json,application/json"
+        style={{ display: 'none' }}
+        onChange={handleImportFile}
+      />
+
       <Card
         title="DB接続設定一覧"
         extra={
-          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
-            新規追加
-          </Button>
+          <Space>
+            <Tooltip title="接続設定を JSON ファイルにエクスポート">
+              <Button
+                icon={<ExportOutlined />}
+                loading={exporting}
+                onClick={handleExport}
+              >
+                エクスポート
+              </Button>
+            </Tooltip>
+            <Tooltip title="JSON ファイルから接続設定をインポート">
+              <Button
+                icon={<ImportOutlined />}
+                loading={importing}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                インポート
+              </Button>
+            </Tooltip>
+            <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
+              新規追加
+            </Button>
+          </Space>
         }
       >
         <Table
